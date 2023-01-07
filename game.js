@@ -53,6 +53,8 @@ ready(function() {
         branches2: 'branches2.png',
         fruits: 'fruits.png',
         objs: 'objs.png',
+        topsquirrel: 'foursquirrel.png',
+        botsquirrel: 'foursquirrel2.png',
     });
 
     game.register_music({
@@ -61,6 +63,8 @@ ready(function() {
     game.resources_ready();
 
     save_data = localStorage.getItem("casso.renewmysubscription.save") || 1;
+
+    load_level();
 });
 
 let level_dimension = 8;
@@ -97,20 +101,12 @@ const BRANCH_MAX_FRAME = 3;
 
 let Type = { BOTTREE: 0, TOPTREE: 1, FRUIT: 2, OTHER: 3 };
 
-let objs = [
-    { type: Type.BOTTREE, id: treeID.treebase, x: 0, y: level_dimension - 1, frame: BRANCH_MAX_FRAME },
-    { type: Type.BOTTREE, id: treeID.lefttip, x: 0, y: level_dimension - 2, frame: BRANCH_MAX_FRAME },
-    { type: Type.BOTTREE, id: treeID.righttip, x: 1, y: level_dimension - 1, frame: BRANCH_MAX_FRAME },
-
-    { type: Type.TOPTREE, id: treeID.treebase, x: level_dimension - 1, y: 0, frame: BRANCH_MAX_FRAME },
-    { type: Type.TOPTREE, id: treeID.lefttip, x: level_dimension - 1, y: 1, frame: BRANCH_MAX_FRAME },
-    { type: Type.TOPTREE, id: treeID.righttip, x: level_dimension - 2, y: 0, frame: BRANCH_MAX_FRAME },
-
-    { type: Type.OTHER, id: objID.fruitcollect, x: level_dimension / 2, y: level_dimension / 2, frame: 0 },
-    { type: Type.OTHER, id: objID.fruitcollect, x: level_dimension / 2 - 1, y: level_dimension / 2, frame: 0 },
-];
+let objs = [];
 
 let fruits = [];
+
+let squirrels = [];
+let squirrel_plan = [];
 
 let drag_path = [];
 let grow_path = [];
@@ -192,7 +188,6 @@ function handle_mousedown(game, e, x, y) {
 function handle_mousemove(game, e, x, y) {
     let [gx, gy] = grid_square_for(x, y);
 
-    console.log(game_state);
     if (game_state === State.DRAG) {
         if (gx < 0 || gx >= level_dimension || gy < 0 || gy >= level_dimension) return;
         if (drag_path.filter(d => d.x === gx && d.y === gy).length > 0) return;
@@ -248,6 +243,21 @@ function load_level() {
 }
 
 function load_level_data(lvl) {
+    objs = [];
+
+    let bottreebase = { type: Type.BOTTREE, id: treeID.treebase, x: 0, y: level_dimension - 1, parentbranch: null, frame: BRANCH_MAX_FRAME };
+    objs.push(bottreebase);
+    objs.push({ type: Type.BOTTREE, id: treeID.lefttip, x: 0, y: level_dimension - 2, parentbranch: bottreebase, frame: BRANCH_MAX_FRAME });
+    objs.push({ type: Type.BOTTREE, id: treeID.righttip, x: 1, y: level_dimension - 1, parentbranch: bottreebase, frame: BRANCH_MAX_FRAME });
+
+    let toptreebase = { type: Type.TOPTREE, id: treeID.treebase, x: level_dimension - 1, y: 0, parentbranch: null, frame: BRANCH_MAX_FRAME };
+    objs.push(toptreebase);
+    objs.push({ type: Type.TOPTREE, id: treeID.lefttip, x: level_dimension - 1, y: 1, parentbranch: toptreebase, frame: BRANCH_MAX_FRAME });
+    objs.push({ type: Type.TOPTREE, id: treeID.righttip, x: level_dimension - 2, y: 0, parentbranch: toptreebase, frame: BRANCH_MAX_FRAME });
+
+    /* TEST LEVEL */
+    objs.push({ type: Type.OTHER, id: objID.fruitcollect, x: level_dimension / 2, y: level_dimension / 2, frame: 0 });
+    objs.push({ type: Type.OTHER, id: objID.fruitcollect, x: level_dimension / 2 - 1, y: level_dimension / 2, frame: 0 });
 }
 
 function extend_left(treetype) {
@@ -305,10 +315,60 @@ function create_fruit(treetype, x, y) {
     }
 }
 
+function create_squirrel(target_x, target_y) {
+    /* Pathfinding */
+    let tree_there = tree_at(target_x, target_y);
+    if (tree_there.length === 0) {
+        console.error("Squirrel can only go to somewhere there is a branch");
+        return;
+    }
+    let tree = tree_there[0];
+
+    let start;
+    if (tree.type === Type.TOPTREE) {
+        start = {
+            x: level_dimension,
+            y: 0,
+            dx: -1,
+            dy: 0,
+        };
+    } else {
+        start = {
+            x: -1,
+            y: level_dimension - 1,
+            dx: 1,
+            dy: 0,
+        };
+    }
+
+    let path = [ tree ];
+    let looktree = tree;
+    while (looktree.parentbranch) {
+        path.push(looktree.parentbranch);
+        looktree = looktree.parentbranch;
+    }
+
+    let [screen_x, screen_y] = coords_for_grid(start.x, start.y);
+
+    squirrels.push({
+        type: tree.type,
+        ...start,
+        scx: screen_x,
+        scy: screen_y,
+        path: path,
+        backpath: [ start ],
+        going_back: false,
+        frame: 0,
+        timer: 0,
+    });
+}
+
 function do_update(delta) {
     let seconds = delta / 1000;
 
     update_fruits(delta);
+
+    update_squirrels(delta);
 
     if (game_state === State.GROW) {
         if (grow_state.extending_from === null) {
@@ -325,7 +385,6 @@ function do_update(delta) {
             while (grow_state.timer >= GROW_FRAME_LENGTH) {
                 grow_state.extending_from.frame ++;
                 grow_state.timer -= GROW_FRAME_LENGTH;
-                console.log(grow_state.extending_from.x, grow_state.extending_from.y, grow_state.extending_from.frame);
 
                 if (grow_state.extending_from.frame > BRANCH_MAX_FRAME) {
                     grow_state.extending_from.frame = BRANCH_MAX_FRAME;
@@ -342,9 +401,7 @@ function do_update(delta) {
                         }
 
                         if (grow_path.length > 0) {
-                            console.log("ach");
                             grow_state.next_square = grow_path.shift();
-                            /* TODO this needs to account for Upside Down Tree */
                             if (grow_state.type === Type.BOTTREE) {
                                 if (grow_state.next_square.x > grow_state.extending_from.x) {
                                     /* a greater X-value means extending rightward */
@@ -367,15 +424,14 @@ function do_update(delta) {
                         } else {
                             /* no more places to go, we're done! */
                             game_state = State.STAND;
-                            console.log("done!");
                             grow_state.extending_from = null;
                             grow_state.next_square = null;
                             grow_state.timer = 0;
                         }
                     } else {
                         /* Grow a new tip in the next_square */
-                        /* TODO this needs to account for Upside Down Tree */
                         let tipid;
+                        let parentbranch = grow_state.extending_from;
                         if (grow_state.type === Type.BOTTREE) {
                             if (grow_state.next_square.x > grow_state.extending_from.x) {
                                 /* a greater X-value means extending rightward */
@@ -393,7 +449,14 @@ function do_update(delta) {
                                 tipid = treeID.lefttip;
                             }
                         }
-                        grow_state.extending_from = { type: grow_state.type, id: tipid, x: grow_state.next_square.x, y: grow_state.next_square.y, frame: 0 };
+                        grow_state.extending_from = {
+                            type: grow_state.type,
+                            id: tipid,
+                            x: grow_state.next_square.x,
+                            y: grow_state.next_square.y,
+                            parentbranch: parentbranch,
+                            frame: 0
+                        };
                         objs.push(grow_state.extending_from);
                         grow_state.growing_to_next = false;
                     }
@@ -422,6 +485,68 @@ function update_fruits(delta) {
     }
 }
 
+const SQUIRREL_FRAME_LENGTH = 120;
+const SQUIRREL_NFRAMES = 4;
+const SQUIRREL_SPEED = 3.2;
+
+function update_squirrels(delta) {
+    let seconds = delta / 1000;
+
+    for (let s of squirrels) {
+        s.x += s.dx * SQUIRREL_SPEED * seconds;
+        s.y += s.dy * SQUIRREL_SPEED * seconds;
+        s.timer += delta;
+
+        while (s.timer >= SQUIRREL_FRAME_LENGTH) {
+            s.timer -= SQUIRREL_FRAME_LENGTH;
+            s.frame ++;
+            s.frame = goodmod(s.frame, SQUIRREL_NFRAMES);
+            [s.scx, s.scy] = coords_for_grid(s.x, s.y);
+        }
+
+        /* Figure out if we reached the current path component. If we have,
+         * look at the next one and change directions accordingly */
+        let path_component = s.path[s.path.length - 1];
+        /* Sort of a "dot product" */
+        if (s.x * s.dx > path_component.x * s.dx || s.y * s.dy > path_component.y * s.dy) {
+            s.x = path_component.x;
+            s.y = path_component.y;
+            /* Move this component into the backwards path */
+            s.backpath.push(s.path.pop());
+            if (s.path.length > 0) {
+                /* Decide what direction to go next */
+                let newpc = s.path[s.path.length - 1];
+                if (newpc.x > s.x) {
+                    s.dx = 1;
+                    s.dy = 0;
+                } else if (newpc.x < s.x) {
+                    s.dx = -1;
+                    s.dy = 0;
+                } else if (newpc.y > s.y) {
+                    s.dx = 0;
+                    s.dy = 1;
+                } else if (newpc.y < s.y) {
+                    s.dx = 0;
+                    s.dy = -1;
+                }
+            } else if (!s.going_back) {
+                /* Reached the end of the path! Now reverse along the back path */
+                [s.path, s.backpath] = [s.backpath, s.path];
+                s.going_back = true;
+            } else {
+                /* We finished, so delete the squirrel :( */
+                s.done = true;
+            }
+        }
+    }
+
+    squirrels = squirrels.filter(s => !s.done);
+
+    squirrels.sort((a, b) => {
+        return b.x - a.x;
+    });
+}
+
 function do_draw(ctx) {
     ctx.fillStyle = game.background_color;
 
@@ -434,6 +559,8 @@ function do_draw(ctx) {
     draw_objs(ctx);
 
     draw_fruits(ctx);
+
+    draw_squirrels(ctx);
 
     draw_drag_path(ctx);
 }
@@ -457,9 +584,7 @@ function draw_grid(ctx) {
 }
 
 function draw_objs(ctx) {
-    for (let i = 0; i < objs.length; i++) {
-        let o = objs[i];
-
+    for (let o of objs) {
         let [coord_x, coord_y] = coords_for_grid(o.x, o.y);
 
         if (o.type === Type.TOPTREE) {
@@ -474,7 +599,6 @@ function draw_objs(ctx) {
 
 function draw_fruits(ctx) {
     for (let f of fruits) {
-        console.log("draw fruit: ", f);
         let [coord_x, coord_y] = coords_for_grid(f.x, f.y);
 
         let yoffset = 0;
@@ -485,10 +609,35 @@ function draw_fruits(ctx) {
     }
 }
 
-function draw_drag_path(ctx) {
-    for (let i = 0; i < drag_path.length; i++) {
-        let d = drag_path[i];
+const SQUIRREL_HEIGHT = 20;
+function draw_squirrels(ctx) {
+    for (let s of squirrels) {
+        let dir;
+        if (s.dx < 0) {
+            dir = 0;
+        } else if (s.dy > 0) {
+            dir = 1;
+        } else if (s.dy < 0) {
+            dir = 2;
+        } else {
+            dir = 3;
+        }
 
+        let img, yoffset;
+        if (s.type === Type.TOPTREE) {
+            img = game.img.topsquirrel;
+            //yoffset = grid_sprite_size - SQUIRREL_HEIGHT + 10;
+            yoffset = grid_sprite_size - SQUIRREL_HEIGHT - 3;
+        } else {
+            img = game.img.botsquirrel;
+            yoffset = grid_sprite_size - SQUIRREL_HEIGHT - 3;
+        }
+        sprite_draw(ctx, img, grid_sprite_size * 3, SQUIRREL_HEIGHT, dir, s.frame, s.scx - grid_sprite_size, s.scy + yoffset);
+    }
+}
+
+function draw_drag_path(ctx) {
+    for (let d of drag_path) {
         let [coord_x, coord_y] = coords_for_grid(d.x, d.y);
 
         sprite_draw(ctx, game.img.grids, grid_sprite_size, grid_sprite_size, 4, 0, coord_x, coord_y);
