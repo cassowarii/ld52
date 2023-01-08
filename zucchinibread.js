@@ -85,7 +85,9 @@ function _register_sfx(sfxdata, game) {
 function _register_music(musicdata, game) {
     for (let key in musicdata) {
         let musicpath;
-        if (_audiocheck.canPlayType('audio/mpeg')) {
+        if (musicdata[key].path.match(/\.[a-z]{3}$/)) {
+            musicpath = musicdata[key].path;
+        } else if (_audiocheck.canPlayType('audio/mpeg')) {
             musicpath = musicdata[key].path + '.mp3';
         } else if (_audiocheck.canPlayType('audio/ogg')) {
             musicpath = musicdata[key].path + '.ogg';
@@ -466,11 +468,9 @@ function _update(game, delta) {
 function _handle_mousedown(game, e) {
     if (!game.playing) return;
 
-    if (game.transition.is_transitioning) return;
-
     const rect = game.canvas.getBoundingClientRect();
-    let x = Math.floor((e.clientX - rect.left) / game.draw_scale);
-    let y = Math.floor((e.clientY - rect.top) / game.draw_scale);
+    let x = Math.round((e.clientX - rect.left) / game.draw_scale) - 1;
+    let y = Math.round((e.clientY - rect.top) / game.draw_scale) - 1;
     if (e.button === 0 && game.events.mousedown) {
         game.events.mousedown(game, e, x, y);
     }
@@ -483,11 +483,9 @@ function _handle_mouseup(game, e) {
         return;
     }
 
-    if (game.transition.is_transitioning) return;
-
     const rect = game.canvas.getBoundingClientRect();
-    let x = Math.floor((e.clientX - rect.left) / game.draw_scale);
-    let y = Math.floor((e.clientY - rect.top) / game.draw_scale);
+    let x = Math.round((e.clientX - rect.left) / game.draw_scale) - 1;
+    let y = Math.round((e.clientY - rect.top) / game.draw_scale) - 1;
     if (e.button === 0 && game.events.mouseup) {
         game.events.mouseup(game, e, x, y);
     }
@@ -495,8 +493,8 @@ function _handle_mouseup(game, e) {
 
 function _handle_mousemove(game, e) {
     const rect = game.canvas.getBoundingClientRect();
-    let x = Math.floor((e.clientX - rect.left) / game.draw_scale);
-    let y = Math.floor((e.clientY - rect.top) / game.draw_scale);
+    let x = Math.round((e.clientX - rect.left) / game.draw_scale) - 1;
+    let y = Math.round((e.clientY - rect.top) / game.draw_scale) - 1;
     if (game.events.mousemove) {
         game.events.mousemove(game, e, x, y);
     }
