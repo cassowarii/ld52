@@ -119,7 +119,12 @@ ready(function() {
 
     game.resources_ready();
 
-    save_data = parseInt(localStorage.getItem(SAVE_KEY)) || 1;
+    save_data = 1;
+    try {
+        save_data = parseInt(localStorage.getItem(SAVE_KEY)) || 1;
+    } catch (e) {
+        console.error("Can't load save");
+    }
     level_number = save_data;
     if (level_number > 1) {
         showundohelp = false;
